@@ -1,0 +1,226 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Jonas Mireku Amoquandoh"
+date: "9/4/2020"
+output: 
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+
+## Prediction Assignment Writeup
+
+
+## Overview
+This document is the final project of the Peer-Graded Assignment from Coursera’s Course Practical Machine Learning, as part of the Specialization in Data Science. It was built up in RStudio, using its knitr functions, meant to be published in html format.
+
+This analysis meant to be the basis for the course quiz and a prediction assignment writeup. The main goal of the project is to predict the manner in which 6 participants performed some exercise as described below. This is the “classe” variable in the training set. The machine learning algorithm described here is applied to the 20 test cases available in the test data and the predictions are submitted in appropriate format to the Course Project Prediction Quiz for automated grading.
+
+
+
+## Background
+Using devices such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit* it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+
+
+
+## Data Loading and Exploratory Analysis
+
+### I. Dataset Overview
+
+The training data for this project are available here:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+A short description of the datasets content from the authors’ website:
+“Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions:
+        
+    exactly according to the specification (Class A), 
+    throwing the elbows to the front (Class B), 
+    lifting the dumbbell only halfway (Class C), 
+    lowering the dumbbell only halfway (Class D) and 
+    throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg)."
+
+
+###  II. Environment Preparation
+
+Upload the R libraries that are necessary to complete analysis.
+
+```{r}
+suppressMessages(library(caret));
+suppressMessages(library(randomForest));
+suppressMessages(library(rpart));
+suppressMessages(library(rpart.plot));
+suppressMessages(library(RColorBrewer));
+suppressMessages(library(rattle))
+set.seed(12345)
+
+```
+
+
+### III. Data Loading and Cleaning
+
+The next step is downloading the dataset from the URL provided above. The training dataset is then partitioned into two to create a Training set (70% of the data) for the modelling process and a Test set (with the remaining 30%) for the validations. The testing dataset is not changed and will only be used for the quiz results generation.
+
+```{r}
+# loading the datasets into the working environment
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+
+# create a partition with the training dataset 
+inTrain  <- createDataPartition(training$classe, p=0.7, list=FALSE)
+TrainSet <- training[inTrain, ]; TestSet  <- training[-inTrain, ]
+dim(TrainSet); dim(TestSet)
+
+```
+
+The datasets created both have 160 variables. Those variables have plenty of NAs, that can be removed with the cleaning procedures below. The Near Zero variance (NZV) variables are also removed and the ID variables as well.
+
+```{r}
+# remove variables with Nearly Zero Variance
+NZV <- nearZeroVar(TrainSet)
+
+TrainSet <- TrainSet[, -NZV]; TestSet  <- TestSet[, -NZV]
+dim(TrainSet); dim(TestSet)
+
+# remove variables that are mostly NA
+all.NA <- sapply(TrainSet, function(x) mean(is.na(x))) > 0.95
+
+TrainSet <- TrainSet[, all.NA==FALSE]; TestSet  <- TestSet[, all.NA==FALSE]
+dim(TrainSet); dim(TestSet)
+
+# remove identification only variables (columns 1 to 5)
+TrainSet <- TrainSet[, -(1:5)]; TestSet  <- TestSet[, -(1:5)]
+dim(TrainSet); dim(TestSet)
+
+```
+
+With the cleaning process above, we now have a reduced dataset of 54 variables for our analysis.
+
+
+
+
+## Prediction Model Building
+
+Three methods will be applied to model the regressions (in the Train dataset) and the best one (with higher accuracy will be applied to the Test dataset), which will be used for the quiz predictions. The methods are: 1. Random Forests; 2. Decision Tree and 3. Generalized Boosted Model, as described below.
+A Confusion Matrix is plotted at the end of each analysis to better visualize the accuracy of the models.
+
+### 1. Random Forest
+
+```{r}
+# model fit
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRandForest <- train(classe ~ ., data=TrainSet, method="rf",
+                          trControl=controlRF)
+modFitRandForest$finalModel
+
+# prediction on Test dataset
+predictRandForest <- predict(modFitRandForest, newdata=TestSet)
+xtabRandForest <- table(predictRandForest, TestSet$classe)
+confMatRandForest <- confusionMatrix(xtabRandForest)
+confMatRandForest
+
+# plot matrix results
+plot(confMatRandForest$table, col = confMatRandForest$byClass, 
+     main = paste("Random Forest - Accuracy =", 
+                  round(confMatRandForest$overall['Accuracy'], 4)))
+
+```
+
+
+
+### 2. Decision Trees
+
+```{r}
+# model fit
+modFitDecTree <- rpart(classe ~ ., data=TrainSet, method="class")
+fancyRpartPlot(modFitDecTree)
+
+# prediction on Test dataset
+predictDecTree <- predict(modFitDecTree, newdata=TestSet, type="class")
+xtabDecTree <- table(predictDecTree, TestSet$classe)
+confMatDecTree <- confusionMatrix(xtabDecTree)
+confMatDecTree
+
+# plot matrix results
+plot(confMatDecTree$table, col = confMatDecTree$byClass, 
+     main = paste("Decision Tree - Accuracy =", 
+                  round(confMatDecTree$overall['Accuracy'], 4)))
+
+```
+
+
+
+### 3. Generalized Boosted Model
+
+```{r}
+# model fit
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modFitGBM <- train(classe ~ ., data=TrainSet, method = "gbm", 
+                   trControl = controlGBM, verbose = FALSE)
+modFitGBM$finalModel
+
+# prediction on Test dataset
+predictGBM <- predict(modFitGBM, newdata=TestSet)
+xtabMatGBM <- table(predictGBM, TestSet$classe)
+confMatGBM <- confusionMatrix(xtabMatGBM)
+confMatGBM
+
+# plot matrix results
+plot(confMatGBM$table, col = confMatGBM$byClass, 
+     main = paste("GBM - Accuracy =", 
+                  round(confMatGBM$overall['Accuracy'], 4)))
+
+```
+
+
+
+## Applying the Selected Model to the Test Data
+
+The accuracy of the 3 regression modeling methods above are:
+        
+    a.	Random Forest : 0.9992
+    b.	Decision Tree : 0.7342
+    c.	Generalized Boosted Model : 0.9876
+
+In that case, the Random Forest model will be applied to predict the 20 quiz results (testing dataset) as shown below.
+
+```{r}
+predictTEST <- predict(modFitRandForest, newdata=testing)
+predictTEST
+
+```
+
+
+
+## References
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. **Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements**. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+Cited by 2 (Google Scholar)
+
+Read more: <http://groupware.les.inf.puc-rio.br/har#ixzz6X7oIpaUq>
+
+
+
+### Other HAR Related Publications
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. **Qualitative Activity Recognition of Weight Lifting Exercises**. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: <http://groupware.les.inf.puc-rio.br/har#ixzz6X7pBAOXF>
+
+
+Ugulino, W.; Ferreira, M.; Velloso, E.; Fuks, H. **Virtual Caregiver: Colaboração de Parentes no Acompanhamento de Idosos**. Anais do SBSC 2012, IX Simpósio Brasileiro de Sistemas Colaborativos , pp. 43-48. São Paulo, SP: IEEE, 2012. ISBN 978-0-7695-4890-6.
+
+Read more: <http://groupware.les.inf.puc-rio.br/har#ixzz6X7pI2gAW>
+
+
+
+
+
+
+[^1]: Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+[^2]: Ugulino, W.; Ferreira, M.; Velloso, E.; Fuks, H. Virtual Caregiver: Colaboração de Parentes no Acompanhamento de Idosos. Anais do SBSC 2012, IX Simpósio Brasileiro de Sistemas Colaborativos , pp. 43-48. São Paulo, SP: IEEE, 2012. ISBN 978-0-7695-4890-6.
+
